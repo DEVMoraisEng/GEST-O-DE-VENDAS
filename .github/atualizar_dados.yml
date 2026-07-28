@@ -1,0 +1,82 @@
+name: Atualizar dados e publicar painel de vendas
+
+on:
+  workflow_dispatch:        # botão manual / cron-job.org
+  push:
+    branches: [main]
+  repository_dispatch:      # permite o CONTROLES-INTERNOS disparar este painel
+    types: [dados-atualizados]
+  schedule:
+    - cron: '30 */4 * * *'
+
+concurrency:
+  group: painel-vendas
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # IMPORTANTE: continue-on-error garante que uma falha ao buscar os dados
+      # NAO impede a publicacao das paginas. Se a geracao falhar, o site e
+      # publicado com o data_vendas.json que ja esta commitado no repositorio.
+      - name: Gerar data_vendas.json enxuto
+        continue-on-error: true
+        env:
+          SOURCE_DATA_URL: https://devmoraiseng.github.io/CONTROLES-INTERNOS/data.json
+        run: python gerar_dados_vendas.py
+
+      - name: Preparar pasta de publicacao
+        run: |
+          mkdir -p dist
+          cp index.html           dist/
+          cp vendas.html          dist/
+          cp casas-vendidas.html  dist/
+          cp mapas.html           dist/
+          cp data_vendas.json     dist/
+          cp logo.png             dist/ 2>/dev/null || true
+          for f in terrabela ravena pqdosburitis joaobraz2 ipanema marquesdeabreu solarville acropole; do
+            cp $f.html dist/ 2>/dev/null || true
+          done
+          cp *_VENDAS.svg dist/ 2>/dev/null || true
+          echo "-- Arquivos em dist/ --"
+          ls -1 dist/
+
+      - name: Commit data_vendas.json
+        continue-on-error: true
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data_vendas.json
+          if git diff --staged --quiet; then
+            echo "data_vendas.json sem alteracoes"
+          else
+            git commit -m "chore: atualizar data_vendas.json [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artefato
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "dist"
+
+      - name: Deploy Pages
+        uses: actions/deploy-pages@v4
