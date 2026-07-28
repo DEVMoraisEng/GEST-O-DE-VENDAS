@@ -7,11 +7,8 @@ on:
   repository_dispatch:      # permite o CONTROLES-INTERNOS disparar este painel
     types: [dados-atualizados]
   schedule:
-    # O schedule nativo do GitHub é pouco confiável em repos parados.
-    # Roda 30 min depois do ciclo do CONTROLES-INTERNOS (que roda a cada 4h).
     - cron: '30 */4 * * *'
 
-# Evita dois deploys simultâneos brigando pelo push
 concurrency:
   group: painel-vendas
   cancel-in-progress: false
@@ -34,29 +31,39 @@ jobs:
         with:
           python-version: "3.11"
 
+      # IMPORTANTE: continue-on-error garante que uma falha ao buscar os dados
+      # NAO impede a publicacao das paginas. Se a geracao falhar, o site e
+      # publicado com o data_vendas.json que ja esta commitado no repositorio.
       - name: Gerar data_vendas.json enxuto
+        continue-on-error: true
         env:
-          # URL do data.json completo publicado pelo CONTROLES-INTERNOS.
-          # Se o endereço mudar, basta alterar aqui.
           SOURCE_DATA_URL: https://devmoraiseng.github.io/CONTROLES-INTERNOS/data.json
         run: python gerar_dados_vendas.py
 
-      - name: Preparar pasta de publicação
+      - name: Preparar pasta de publicacao
         run: |
           mkdir -p dist
           cp index.html           dist/
           cp vendas.html          dist/
           cp casas-vendidas.html  dist/
+          cp mapas.html           dist/
           cp data_vendas.json     dist/
           cp logo.png             dist/ 2>/dev/null || true
+          for f in terrabela ravena pqdosburitis joaobraz2 ipanema marquesdeabreu solarville acropole; do
+            cp $f.html dist/ 2>/dev/null || true
+          done
+          cp *_VENDAS.svg dist/ 2>/dev/null || true
+          echo "-- Arquivos em dist/ --"
+          ls -1 dist/
 
       - name: Commit data_vendas.json
+        continue-on-error: true
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data_vendas.json
           if git diff --staged --quiet; then
-            echo "data_vendas.json sem alterações — nada a comitar"
+            echo "data_vendas.json sem alteracoes"
           else
             git commit -m "chore: atualizar data_vendas.json [skip ci]"
             git pull --rebase origin main
